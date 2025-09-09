@@ -1,10 +1,5 @@
-try:
-    from builtins import object
-except ImportError:
-    pass
-
 from .utils import Stuff
-from .test_graphviz import TestDiagrams, TestDiagramsNested
+from .test_graphviz import TestDiagrams, TestDiagramsNested, TestDiagramsImport
 from transitions.extensions.states import add_state_features, Timeout, Tags
 from unittest import skipIf
 
@@ -15,10 +10,16 @@ except ImportError:  # pragma: no cover
     pgv = None
 
 
+class TestPygraphvizImport(TestDiagramsImport):
+
+    graph_engine = "pygraphviz"
+    pgv = pgv
+
+
 @skipIf(pgv is None, 'Graph diagram requires pygraphviz')
 class PygraphvizTest(TestDiagrams):
 
-    use_pygraphviz = True
+    graph_engine = "pygraphviz"
 
     def setUp(self):
         super(PygraphvizTest, self).setUp()
@@ -36,7 +37,7 @@ class PygraphvizTest(TestDiagrams):
             transitions=transitions,
             initial='a',
             auto_transitions=False,
-            use_pygraphviz=self.use_pygraphviz
+            graph_engine=self.graph_engine
         )
 
         graph = m.get_graph()
@@ -51,7 +52,7 @@ class PygraphvizTest(TestDiagrams):
         m1 = Stuff(machine_cls=None)
         m2 = Stuff(machine_cls=None)
         m = self.machine_cls(model=[m1, m2], states=self.states, transitions=self.transitions, initial='A',
-                             use_pygraphviz=self.use_pygraphviz)
+                             graph_engine=self.graph_engine)
         m1.walk()
         self.assertEqual(m1.get_graph().get_node(m1.state).attr['color'],
                          m1.get_graph().style_attributes['node']['active']['color'])
@@ -90,16 +91,29 @@ class PygraphvizTest(TestDiagrams):
     def test_state_tags(self):
 
         @add_state_features(Tags, Timeout)
-        class CustomMachine(self.machine_cls):
+        class CustomMachine(self.machine_cls):  # type: ignore
             pass
 
         self.states[0] = {'name': 'A', 'tags': ['new', 'polling'], 'timeout': 5, 'on_enter': 'say_hello',
                           'on_exit': 'say_goodbye', 'on_timeout': 'do_something'}
         m = CustomMachine(states=self.states, transitions=self.transitions, initial='A', show_state_attributes=True)
-        g = m.get_graph(show_roi=True)
+        _ = m.get_graph(show_roi=True)
+
+    def test_update_on_remove_transition(self):
+
+        m = self.machine_cls(states=self.states, transitions=self.transitions, initial='A', show_state_attributes=True)
+        g = m.get_graph()
+        e = g.get_edge("A", "B")
+        assert e in g.edges()
+        m.remove_transition(trigger="walk", source="A", dest="B")
+        assert not any("walk" == t["trigger"] for t in m.markup["transitions"])
+        g = m.get_graph()
+        with self.assertRaises(KeyError):
+            _ = g.get_edge("A", "B")
+        assert e not in g.edges()
 
 
 @skipIf(pgv is None, 'NestedGraph diagram requires pygraphviz')
 class TestPygraphvizNested(TestDiagramsNested, PygraphvizTest):
 
-    use_pygraphviz = True
+    graph_engine = "pygraphviz"

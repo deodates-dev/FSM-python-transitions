@@ -1,56 +1,112 @@
-from six import string_types, iteritems
-from functools import partial
-import itertools
-import importlib
+"""
+    transitions.extensions.markup
+    -----------------------------
 
-from ..core import Machine, Enum
+    This module extends machines with markup functionality that can be used to retrieve the current machine
+    configuration as a dictionary. This is used as the foundation for diagram generation with Graphviz but can
+    also be used to store and transfer machines.
+"""
+
+from functools import partial
+import importlib
+import itertools
 import numbers
+
+from six import string_types, iteritems
+
+try:
+    # Enums are supported for Python 3.4+ and Python 2.7 with enum34 package installed
+    from enum import Enum, EnumMeta
+except ImportError:  # pragma: no cover
+    # If enum is not available, create dummy classes for type checks
+    # typing must be prevented redefinition issues with mypy
+    class Enum:  # type:ignore
+        """This is just an Enum stub for Python 2 and Python 3.3 and before without Enum support."""
+
+    class EnumMeta:  # type:ignore
+        """This is just an EnumMeta stub for Python 2 and Python 3.3 and before without Enum support."""
+
+from ..core import Machine
+from .nesting import HierarchicalMachine
 
 
 class MarkupMachine(Machine):
+    """Extends transitions.core.Machine with the capability to generate a dictionary representation of itself,
+    its events, states and models.
+    """
 
     # Special attributes such as NestedState._name/_parent or Transition._condition are handled differently
-    state_attributes = ['on_exit', 'on_enter', 'ignore_invalid_triggers', 'timeout', 'on_timeout', 'tags', 'label']
+    state_attributes = ['on_exit', 'on_enter', 'ignore_invalid_triggers', 'timeout', 'on_timeout', 'tags', 'label',
+                        'final']
     transition_attributes = ['source', 'dest', 'prepare', 'before', 'after', 'label']
 
-    def __init__(self, *args, **kwargs):
-        self._markup = kwargs.pop('markup', {})
-        self._auto_transitions_markup = kwargs.pop('auto_transitions_markup', False)
+    def __init__(self, model=Machine.self_literal, states=None, initial='initial', transitions=None,
+                 send_event=False, auto_transitions=True,
+                 ordered_transitions=False, ignore_invalid_triggers=None,
+                 before_state_change=None, after_state_change=None, name=None,
+                 queued=False, prepare_event=None, finalize_event=None, model_attribute='state',
+                 model_override=False, on_exception=None, on_final=None, markup=None, auto_transitions_markup=False,
+                 **kwargs):
+        self._markup = markup or {}
+        self._auto_transitions_markup = auto_transitions_markup
         self._needs_update = True
 
         if self._markup:
-            models_markup = self._markup.pop('models', [])
-            super(MarkupMachine, self).__init__(None, **self._markup)
-            for m in models_markup:
-                self._add_markup_model(m)
+            # remove models from config to process them AFTER the base machine has been initialized
+            models = self._markup.pop('models', [])
+            super(MarkupMachine, self).__init__(model=None, **self._markup)
+            for mod in models:
+                self._add_markup_model(mod)
         else:
-            super(MarkupMachine, self).__init__(*args, **kwargs)
+            super(MarkupMachine, self).__init__(
+                model=model, states=states, initial=initial, transitions=transitions,
+                send_event=send_event, auto_transitions=auto_transitions,
+                ordered_transitions=ordered_transitions, ignore_invalid_triggers=ignore_invalid_triggers,
+                before_state_change=before_state_change, after_state_change=after_state_change, name=name,
+                queued=queued, prepare_event=prepare_event, finalize_event=finalize_event,
+                model_attribute=model_attribute, model_override=model_override,
+                on_exception=on_exception, on_final=on_final, **kwargs
+            )
             self._markup['before_state_change'] = [x for x in (rep(f) for f in self.before_state_change) if x]
             self._markup['after_state_change'] = [x for x in (rep(f) for f in self.before_state_change) if x]
             self._markup['prepare_event'] = [x for x in (rep(f) for f in self.prepare_event) if x]
             self._markup['finalize_event'] = [x for x in (rep(f) for f in self.finalize_event) if x]
+            self._markup['on_exception'] = [x for x in (rep(f) for f in self.on_exception) if x]
+            self._markup['on_final'] = [x for x in (rep(f) for f in self.on_final) if x]
             self._markup['send_event'] = self.send_event
             self._markup['auto_transitions'] = self.auto_transitions
+            self._markup['model_attribute'] = self.model_attribute
+            self._markup['model_override'] = self.model_override
             self._markup['ignore_invalid_triggers'] = self.ignore_invalid_triggers
             self._markup['queued'] = self.has_queue
 
     @property
     def auto_transitions_markup(self):
+        """Whether auto transitions should be included in the markup."""
         return self._auto_transitions_markup
 
     @auto_transitions_markup.setter
     def auto_transitions_markup(self, value):
+        """Whether auto transitions should be included in the markup."""
         self._auto_transitions_markup = value
         self._needs_update = True
 
     @property
     def markup(self):
+        """Returns the machine's configuration as a markup dictionary.
+        Returns:
+            dict of machine configuration parameters.
+        """
         self._markup['models'] = self._convert_models()
         return self.get_markup_config()
 
     # the only reason why this not part of markup property is that pickle
     # has issues with properties during __setattr__ (self.markup is not set)
     def get_markup_config(self):
+        """Generates and returns all machine markup parameters except models.
+        Returns:
+            dict of machine configuration parameters.
+        """
         if self._needs_update:
             self._convert_states_and_transitions(self._markup)
             self._needs_update = False
@@ -62,6 +118,10 @@ class MarkupMachine(Machine):
                                                   before=before, after=after, prepare=prepare, **kwargs)
         self._needs_update = True
 
+    def remove_transition(self, trigger, source="*", dest="*"):
+        super(MarkupMachine, self).remove_transition(trigger, source, dest)
+        self._needs_update = True
+
     def add_states(self, states, on_enter=None, on_exit=None, ignore_invalid_triggers=None, **kwargs):
         super(MarkupMachine, self).add_states(states, on_enter=on_enter, on_exit=on_exit,
                                               ignore_invalid_triggers=ignore_invalid_triggers, **kwargs)
@@ -69,6 +129,10 @@ class MarkupMachine(Machine):
 
     @staticmethod
     def format_references(func):
+        """Creates a string representation of referenced callbacks.
+        Returns:
+            str that represents a callback reference.
+        """
         try:
             return func.__name__
         except AttributeError:
@@ -159,7 +223,6 @@ class MarkupMachine(Machine):
                 pass
         return False
 
-    @classmethod
     def _identify_callback(self, name):
         callback_type, target = super(MarkupMachine, self)._identify_callback(name)
         if callback_type:
@@ -167,8 +230,12 @@ class MarkupMachine(Machine):
         return callback_type, target
 
 
+class HierarchicalMarkupMachine(MarkupMachine, HierarchicalMachine):
+    """Extends transitions.extensions.nesting.HierarchicalMachine with markup capabilities."""
+
+
 def rep(func, format_references=None):
-    """ Return a string representation for `func`. """
+    """Return a string representation for `func`."""
     if isinstance(func, string_types):
         return func
     if isinstance(func, numbers.Number):
@@ -177,16 +244,18 @@ def rep(func, format_references=None):
 
 
 def _convert(obj, attributes, format_references):
-    s = {}
+    definition = {}
     for key in attributes:
         val = getattr(obj, key, False)
         if not val:
             continue
         if isinstance(val, string_types):
-            s[key] = val
+            definition[key] = val
+        elif val is True:
+            definition[key] = True
         else:
             try:
-                s[key] = [rep(v, format_references) for v in iter(val)]
+                definition[key] = [rep(v, format_references) for v in iter(val)]
             except TypeError:
-                s[key] = rep(val, format_references)
-    return s
+                definition[key] = rep(val, format_references)
+    return definition

@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.9.4 ()
+
+- Bug #688: `Machine.remove_transitions` did not work with `State` and `Enum` even though the signature implied this (thanks @hookokoko)
+- PR #696: Improve handling of `StrEnum` which were previously confused as string (thanks @jbrocher)
+- Bug #697: An empty string as a destination made a transition internal but only `dest=None` should do this (thanks @rudy-lath-vizio)
+- Bug #704: `AsyncMachine` processed all `CancelledErrors` but will from now on only do so if the error message is equal to `asyncio.CANCELLED_MSG`; this should make bypassing catch clauses easier; requires Python 3.11+ (thanks @Salier13)
+- Feature #710: `experimental.utils.generate_base_model` can now be called with an instance of MarkupMachine directly (thanks @patrickwolf)
+- Bug #715: `HierarchicalMachine._final_check` wrongly determined a parallel state final when the last child was final (thanks @DenizKucukozturk)
+- Bug #716: `HierarchicalMachine` caused an `AssertionError` when `model_override` was `True` and `NestedSeperator` differed from `_` (thanks @pritam-dey3)
+
+## 0.9.3 (July 2024)
+
+- Bug #682: `AsyncTimeout` did not stop execution (thanks @matt3o)
+- Bug #683: Typing wrongly suggested that `Transition` instances can be passed to `Machine.__init__` and/or `Machine.add_transition(s)` (thanks @antonio-antuan)
+- Bug #692: When adding an already constructed `NestedState`, FunctionWrapper was not properly initialized (thanks @drpjm)
+- Bug #701: `Machine.dispatch` should not short-circuit when a model returns False (thanks @Joshuaalbert)
+- Typing should be more precise now
+  - Made `transitions.core.(Async)TransitionConfigDict` a `TypedDict` which can be used to spot parameter errors during static analysis
+  - `Machine.add_transitions` and `Machine.__init__` expect a `Sequence` of configurations for transitions now
+  - Added 'async' callbacks to types in `asyncio` extension
+
+## 0.9.2 (August 2024)
+
+Release 0.9.2 is a minor release and contains a new mermaid diagram backend, a new model decoration mode for easier development with types and some more features and bugfixes.
+
+- Bug #610: Decorate models appropriately when `HierarchicalMachine` is passed to `add_state` (thanks @e0lithic)
+- Bug #647: Let `may_<trigger>` check all parallel states in processing order (thanks @spearsear)
+- Bug: `HSM.is_state` works with parallel states now
+- Experimental features: 
+  + Add `model_override` to Machine constructor to determine the mode of operation. With `model_override=Fale` (default), `transitions` will not override already defined methods on a model just as it did before. For workflows relying on typing, `model_override=True` will override methods already defined on the model and only those (!). This allows to control which convenience methods shall be assigned to the model and keeps the statically 'assumed' model in sync with its runtime counterpart. Since defining each and every method manually is rather tiresome, `transitions.experimental.utils.generate_base_model` features a way to convert a machine configuration into a `BaseClass` with all convenience functions and callbacks.
+  + Add `transitions.experimental.utils.{add_transitions, event, with_model_definitions, transition}` to define trigger methods in a class model for more convenient type checking. `add_transitions` can be used as a function decorator and is stackable. `event` returns a placeholder object for attribute assigment. `add_transitions` and `event` have the same signature and support transition definition like machine constructors. The function `transition` can used for better typing and returns a dictionary that can be passed to the utility functions but also to a machine constructor. `add_transitions` and `event` require a machine decorated with `with_model_definitions`. Decorating a machine `with_model_definitions` implies `model_override=True`.
+- Feature: Add `may_trigger` to models to check whether transitions can be conducted by trigger name.
+- Feature: Add Mermaid diagram backend that returns a mermaid diagram as a string. `use_pygraphviz` is deprecated in favour for `graph_engine` which may be `pygraphviz` (default), `graphviz` or `mermaid`.
+
+## 0.9.1 (May 2024)
+
+Release 0.9.1 is a minor release and contains several bugfixes and some (typing) improvements. This release also introduces `on_final` callbacks on machines (as well as `NestedState`) and `final` flags for states.
+
+- Bug #594: Fix may_<trigger> always returning false for internal transitions (thanks @a-schade)
+- PR #592: Pass investigated transition to `EventData` context in 'may' check (thanks @msclock)
+- PR #634: Improve the handling of diagrams when working with parallel states, especially when using the show_roi option (thanks @seanxlliu)
+- Bug #619/#639: `Exception` is not broad enough and does not catch `asyncio.CancelledError` or `KeyboardInterrupt`; use `BaseException` instead (thanks @e0lithic and @ofacklam)
+- '_anchor' suffix has been removed for (py)graphviz cluster node anchors
+- local testing switched from [tox](https://github.com/tox-dev/tox) to [nox](https://github.com/wntrblm/nox)
+- PR #633: Remove surrounding whitespace from docstrings (thanks @artofhuman)
+- PR #665: Add `on_final` to `Machine` and `NestedState` constructor and `final` to `State`. Callbacks passed to `on_final` will be executed when a State with `final=True` is entered or all children of a parallel state are final.
+- Bug #626: Process exceptions with `Machine.on_exception` in may_<trigger> as well (thanks @match1)
+- PR #666: Improved handling of removing transitions for `GraphMachine` and `HiearachicalMachine` (thanks @drpjm)
+- PR #667: Better handling of unset styling in `GraphMachine`
+- Typing:
+  + Added `--strict` mypy flag for `transitions` type checks (not `tests` though)
+  + Made state, event and machine property mandatory in (Nested)EventData
+  + Transition.dest may be None
+  + Introduced (Async)CallbackFunc to declutter callback-related signatures
+  + Add stub file for extension package for explicite reexport (thanks @DrewDevereux)
+
+## 0.9.0 (September 2022)
+
+Release 0.9.0 is a major release and contains improvements to ease development, adds some new features and removes the legacy hierarchical machine:
+
+- removed legacy implementation of `HierarchicalMachine` from the package
+- Bug #551: Fix active state styling in `GraphMachine` (thanks @betaboon)
+- Bug #554: Fix issues related to scopes and queueing in `HierachicalMachine` (thanks @jankrejci)
+- Bug #568: Reflexive transitions (dest: '=') had not been resolved correctly when source was a wildcard (thanks @jnu)
+- Bug #568: HSM did not detect reflexive transitions if src was a parent state (thanks @lostcontrol)
+- Bug #569: Fix implicit fallback to `graphviz` when `pygraphviz` was not installed (thanks @FridjofAmundsen)
+- Bug #580: Fix `on_timeout` callback resolution when timeout had been initialized with `timeout=0` (thanks @Rysbai)
+- Bug #582: Last label in `GraphSupport` was not correctly aligned when `show_attributes=True` (thanks @spagh-eddie)
+- Feature: Add pyi stub files for better type hinting. Since many functions and constructors allow rather arbitrary arguments time will tell whether typing should be strict (and cause more mypy issues) or more relaxed (and thus less precise).
+- Feature: Reviewed and improved method documentation
+- Feature #549: Add `may` transition check to transitions (thanks @artofhuman)
+- Feature #552: Refactored error handling to be able to handle `MachineError` in `on_exception` callbacks (thanks @kpihus)
+- Feature: Add `mypy` to test workflow
+- PR #461: Add `Retry` state to supported state stereotypes (thanks @rgov)
+- Internal: `Machine._identify_callback` has been converted to instance method from class method
+- Internal: `LockedMachine._get_qualified_state_name` has been converted to instance method from static method
+- Internal: Removed `_super` workaround related to dill (see https://github.com/pytransitions/transitions/issues/236)
+
+## 0.8.11 (February 2022)
+
+Release 0.8.11 is the last 0.8 release and contains fixes for Python 3.10 compatibility issues
+
+- Bug #559: Rewrote an async test and replaced `setDaemon` with `daemon` property assignment for thread handling (thanks @debalance)
+
 ## 0.8.10 (October 2021)
 
 Release 0.8.10 is a minor release and contains two bug fixes for the HSM extension and changes how the 'self' literal string is handled.

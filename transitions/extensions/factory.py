@@ -8,39 +8,39 @@
 """
 
 from functools import partial
+import itertools
+from six import iteritems
 
-from ..core import Machine
+from ..core import Machine, Transition
 
-from .nesting import HierarchicalMachine, NestedTransition, NestedEvent
+from .nesting import HierarchicalMachine, NestedEvent, NestedTransition
 from .locking import LockedMachine
-from .diagrams import GraphMachine, TransitionGraphSupport
-from .markup import MarkupMachine
+from .diagrams import GraphMachine, NestedGraphTransition, HierarchicalGraphMachine
+
 try:
     from transitions.extensions.asyncio import AsyncMachine, AsyncTransition
     from transitions.extensions.asyncio import HierarchicalAsyncMachine, NestedAsyncTransition
-except (ImportError, SyntaxError):
-    class AsyncMachine:  # Mocks for Python version 3.6 and earlier
-        pass
+except (ImportError, SyntaxError):  # pragma: no cover
+    class AsyncMachine(Machine):  # type: ignore
+        """A mock of AsyncMachine for Python 3.6 and earlier."""
 
-    class AsyncTransition:
-        pass
+    class AsyncTransition(Transition):  # type: ignore
+        """A mock of AsyncTransition for Python 3.6 and earlier."""
 
-    class HierarchicalAsyncMachine:
-        pass
+    class HierarchicalAsyncMachine(HierarchicalMachine):  # type: ignore
+        """A mock of HierarchicalAsyncMachine for Python 3.6 and earlier."""
 
-    class NestedAsyncTransition:
-        pass
+    class NestedAsyncTransition(NestedTransition):  # type: ignore
+        """A mock of NestedAsyncTransition for Python 3.6 and earlier."""
 
 
 class MachineFactory(object):
-    """
-        Convenience factory for machine class retrieval.
-    """
+    """Convenience factory for machine class retrieval."""
 
     # get one of the predefined classes which fulfill the criteria
     @staticmethod
     def get_predefined(graph=False, nested=False, locked=False, asyncio=False):
-        """ A function to retrieve machine classes by required functionality.
+        """A function to retrieve machine classes by required functionality.
         Args:
             graph (bool): Whether the returned class should contain graph support.
             nested: Whether the returned machine class should support nested states.
@@ -51,27 +51,7 @@ class MachineFactory(object):
         try:
             return _CLASS_MAP[(graph, nested, locked, asyncio)]
         except KeyError:
-            raise ValueError("Feature combination not (yet) supported")
-
-
-class NestedGraphTransition(TransitionGraphSupport, NestedTransition):
-    """
-        A transition type to be used with (subclasses of) `HierarchicalGraphMachine` and
-        `LockedHierarchicalGraphMachine`.
-    """
-    pass
-
-
-class HierarchicalMarkupMachine(MarkupMachine, HierarchicalMachine):
-    pass
-
-
-class HierarchicalGraphMachine(GraphMachine, HierarchicalMarkupMachine):
-    """
-        A hierarchical state machine with graph support.
-    """
-
-    transition_cls = NestedGraphTransition
+            raise ValueError("Feature combination not (yet) supported")  # from KeyError
 
 
 class LockedHierarchicalMachine(LockedMachine, HierarchicalMachine):
@@ -93,7 +73,12 @@ class LockedGraphMachine(GraphMachine, LockedMachine):
     @staticmethod
     def format_references(func):
         if isinstance(func, partial) and func.func.__name__.startswith('_locked_method'):
-            func = func.args[0]
+            return "%s(%s)" % (
+                func.args[0].__name__,
+                ", ".join(itertools.chain(
+                    (str(_) for _ in func.args[1:]),
+                    ("%s=%s" % (key, value)
+                     for key, value in iteritems(func.keywords if func.keywords else {})))))
         return GraphMachine.format_references(func)
 
 
@@ -107,17 +92,17 @@ class LockedHierarchicalGraphMachine(GraphMachine, LockedHierarchicalMachine):
 
     @staticmethod
     def format_references(func):
-        if isinstance(func, partial) and func.func.__name__.startswith('_locked_method'):
-            func = func.args[0]
-        return GraphMachine.format_references(func)
+        return LockedGraphMachine.format_references(func)
 
 
 class AsyncGraphMachine(GraphMachine, AsyncMachine):
+    """A machine that supports asynchronous event/callback processing with Graphviz support."""
 
     transition_cls = AsyncTransition
 
 
 class HierarchicalAsyncGraphMachine(GraphMachine, HierarchicalAsyncMachine):
+    """A hierarchical machine that supports asynchronous event/callback processing with Graphviz support."""
 
     transition_cls = NestedAsyncTransition
 
